@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       destinations:
-        description: 'Comma-separated IATA codes. Leave blank for all.'
+        description: 'Comma-separated IATA codes (e.g. AGP,CDG). Leave blank for all.'
         required: false
         type: string
       months_ahead:
@@ -55,6 +55,7 @@ jobs:
       - name: Random startup delay
         if: github.event_name == 'schedule'
         run: |
+          # Stagger jobs 0-180 min (across 2am-5am window)
           DELAY=$((RANDOM % 10800))
           echo "Delaying ${DELAY}s ($(($DELAY / 60))min) to stagger requests..."
           sleep $DELAY
@@ -65,7 +66,7 @@ jobs:
         run: |
           DESTS="${{ github.event.inputs.destinations }}"
           DEST="${{ matrix.destination }}"
-          if echo "$DESTS" | tr ',' '\n' | grep -q "^${DEST}\$"; then
+          if echo "$DESTS" | tr ',' '\n' | grep -q "^${DEST}$"; then
             echo "skip=false" >> $GITHUB_OUTPUT
           else
             echo "skip=true" >> $GITHUB_OUTPUT
@@ -78,7 +79,7 @@ jobs:
           MONTHS_AHEAD="${{ github.event.inputs.months_ahead }}"
           MONTHS_AHEAD="${MONTHS_AHEAD:-6}"
           MONTH_LIST=""
-          for i in $(seq 0 $(($MONTHS_AHEAD - 1))); do
+          for i in $(seq 0 $((MONTHS_AHEAD - 1))); do
             M=$(date -d "+${i} month" +%Y-%m 2>/dev/null || date -v+${i}m +%Y-%m)
             MONTH_LIST="${MONTH_LIST}${M},"
           done
@@ -119,9 +120,19 @@ jobs:
             python export_sql.py
             DUMP_FILE="$HOME/.flightcache/d1_import.sql"
             echo "SQL dump: $(du -h "$DUMP_FILE" | cut -f1), $(wc -l < "$DUMP_FILE") lines"
-            WRANGLER_SEND_METRICS=false wrangler d1 execute flights-cache \
-              --remote \
-              --file="$DUMP_FILE" \
-              --yes
-            echo "D1 import complete for ${{ matrix.destination }}"
+            # Retry loop — D1 only allows one import at a time
+            for ATTEMPT in 1 2 3 4 5 6 7 8 9 10; do
+              echo "D1 import attempt ${ATTEMPT}..."
+              if WRANGLER_SEND_METRICS=false wrangler d1 execute flights-cache \
+                --remote \
+                --file="$DUMP_FILE" \
+                --yes 2>&1; then
+                echo "D1 import complete for ${{ matrix.destination }}"
+                break
+              else
+                WAIT=$((RANDOM % 60 + 30))
+                echo "D1 busy, waiting ${WAIT}s before retry..."
+                sleep $WAIT
+              fi
+            done
           fi

@@ -1,21 +1,17 @@
-"""Southampton Airport (SOU) destinations."""
+"""Southampton Airport (SOU) destinations — verified via Google Flights."""
 
 DESTINATIONS = {
     "SOU": {
         "name": "Southampton",
         "routes": {
-            "AGP": "Malaga",
-            "ALC": "Alicante",
             "AMS": "Amsterdam",
-            "BER": "Berlin",
-            "CDG": "Paris CDG",
+            "BHD": "Belfast City",
             "DUB": "Dublin",
             "EDI": "Edinburgh",
-            "FAO": "Faro",
             "GCI": "Guernsey",
             "GLA": "Glasgow",
             "JER": "Jersey",
-            "PMI": "Palma",
+            "NCL": "Newcastle",
         },
     },
 }

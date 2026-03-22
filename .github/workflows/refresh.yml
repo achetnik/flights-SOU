@@ -23,18 +23,14 @@ jobs:
       max-parallel: 10
       matrix:
         destination:
-          - AGP
-          - ALC
           - AMS
-          - BER
-          - CDG
+          - BHD
           - DUB
           - EDI
-          - FAO
           - GCI
           - GLA
           - JER
-          - PMI
+          - NCL
 
     steps:
       - name: Checkout code

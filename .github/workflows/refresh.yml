@@ -1,0 +1,127 @@
+name: Nightly Flight Refresh
+
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      destinations:
+        description: 'Comma-separated IATA codes. Leave blank for all.'
+        required: false
+        type: string
+      months_ahead:
+        description: 'Number of months ahead to search (default: 12)'
+        required: false
+        type: string
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        destination:
+          - AGP
+          - ALC
+          - AMS
+          - BER
+          - CDG
+          - DUB
+          - EDI
+          - FAO
+          - GCI
+          - GLA
+          - JER
+          - PMI
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install wrangler
+        run: npm install -g wrangler
+
+      - name: Random startup delay
+        if: github.event_name == 'schedule'
+        run: |
+          DELAY=$((RANDOM % 10800))
+          echo "Delaying ${DELAY}s ($(($DELAY / 60))min) to stagger requests..."
+          sleep $DELAY
+
+      - name: Check if destination is in filter
+        if: github.event.inputs.destinations != ''
+        id: filter
+        run: |
+          DESTS="${{ github.event.inputs.destinations }}"
+          DEST="${{ matrix.destination }}"
+          if echo "$DESTS" | tr ',' '\n' | grep -q "^${DEST}\$"; then
+            echo "skip=false" >> $GITHUB_OUTPUT
+          else
+            echo "skip=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate month list
+        if: steps.filter.outputs.skip != 'true'
+        id: months
+        run: |
+          MONTHS_AHEAD="${{ github.event.inputs.months_ahead }}"
+          MONTHS_AHEAD="${MONTHS_AHEAD:-12}"
+          MONTH_LIST=""
+          for i in $(seq 0 $(($MONTHS_AHEAD - 1))); do
+            M=$(date -d "+${i} month" +%Y-%m 2>/dev/null || date -v+${i}m +%Y-%m)
+            MONTH_LIST="${MONTH_LIST}${M},"
+          done
+          MONTH_LIST="${MONTH_LIST%,}"
+          echo "months=$MONTH_LIST" >> $GITHUB_OUTPUT
+          echo "Months to scrape: $MONTH_LIST"
+
+      - name: Scrape ${{ matrix.destination }}
+        if: steps.filter.outputs.skip != 'true'
+        run: |
+          IFS=',' read -ra MONTHS <<< "${{ steps.months.outputs.months }}"
+          for MONTH in "${MONTHS[@]}"; do
+            echo "=== ${{ matrix.destination }} ${MONTH} ==="
+            python refresher.py --month "${MONTH}" --destinations "${{ matrix.destination }}" || true
+          done
+
+      - name: Show results
+        if: always() && steps.filter.outputs.skip != 'true'
+        run: |
+          if [ -f ~/.flightcache/flights.db ]; then
+            echo "Database size: $(du -h ~/.flightcache/flights.db | cut -f1)"
+            python -c "
+          from cache_db import FlightCache
+          c = FlightCache()
+          s = c.get_stats()
+          print(f'Searches: {s[\"searches\"]}, Flights: {s[\"flights\"]}, Routes: {s[\"routes\"]}')
+          c.close()
+          "
+          fi
+
+      - name: Export and import to D1
+        if: always() && steps.filter.outputs.skip != 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -f ~/.flightcache/flights.db ]; then
+            python export_sql.py
+            DUMP_FILE="$HOME/.flightcache/d1_import.sql"
+            echo "SQL dump: $(du -h "$DUMP_FILE" | cut -f1), $(wc -l < "$DUMP_FILE") lines"
+            WRANGLER_SEND_METRICS=false wrangler d1 execute flights-cache \
+              --remote \
+              --file="$DUMP_FILE" \
+              --yes
+            echo "D1 import complete for ${{ matrix.destination }}"
+          fi

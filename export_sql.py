@@ -65,11 +65,39 @@ def export(db_path: Path = DB_PATH, dump_path: Path = DUMP_PATH) -> Path:
         content_hash = s['content_hash'] if 'content_hash' in s.keys() else ''
         current_hashes[key] = content_hash
 
-        if content_hash and content_hash == previous_hashes.get(key):
+        prev_hash = previous_hashes.get(key)
+        # Skip if hash matches (including both being empty = no flights found both times)
+        if (content_hash == prev_hash) and prev_hash is not None:
             skipped_unchanged += 1
         else:
             changed_searches.append(s)
+            # Log why it changed (first 5 only to avoid spam)
+            if len(changed_searches) <= 5:
+                if not prev_hash:
+                    logger.info(f"  CHANGED {key}: no previous hash (first run for this search)")
+                elif not content_hash:
+                    logger.info(f"  CHANGED {key}: no current hash (no flights found)")
+                else:
+                    logger.info(f"  CHANGED {key}: hash {prev_hash[:8]}→{content_hash[:8]}")
 
+    logger.info(f"Previous hashes loaded: {len(previous_hashes)}")
+    # Show sample of previous keys vs current keys to debug mismatches
+    prev_keys = set(previous_hashes.keys())
+    curr_keys = set(current_hashes.keys())
+    matched_keys = prev_keys & curr_keys
+    new_keys = curr_keys - prev_keys
+    gone_keys = prev_keys - curr_keys
+    logger.info(f"Keys: {len(matched_keys)} matched, {len(new_keys)} new, {len(gone_keys)} gone from previous")
+    if new_keys:
+        for k in sorted(new_keys)[:3]:
+            logger.info(f"  NEW KEY: {k}")
+    if gone_keys:
+        for k in sorted(gone_keys)[:3]:
+            logger.info(f"  GONE KEY: {k}")
+    # For matched keys, show how many have same hash
+    hash_matches = sum(1 for k in matched_keys if current_hashes[k] == previous_hashes[k])
+    hash_diffs = len(matched_keys) - hash_matches
+    logger.info(f"Matched keys: {hash_matches} same hash, {hash_diffs} hash changed")
     logger.info(f"Searches: {len(all_searches)} total, {len(changed_searches)} changed, {skipped_unchanged} unchanged (skipped)")
 
     if not changed_searches:

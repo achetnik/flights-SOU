@@ -216,7 +216,7 @@ def run_refresh(
 
                     # Skip next-day arrivals (useless for day trips)
                     arrival_ahead = getattr(f, "arrival_time_ahead", "") or ""
-                    if arrival_ahead and arrival_ahead != "0":
+                    if arrival_ahead and arrival_ahead != "0" and direction == "outbound":
                         skipped_filtered += 1
                         continue
 
@@ -310,7 +310,7 @@ def run_refresh(
                             skipped_filtered += 1
                             continue
                         arrival_ahead = getattr(f, "arrival_time_ahead", "") or ""
-                        if arrival_ahead and arrival_ahead != "0":
+                        if arrival_ahead and arrival_ahead != "0" and direction == "outbound":
                             skipped_filtered += 1
                             continue
                         if direction == "outbound" and dep_mins >= 720:

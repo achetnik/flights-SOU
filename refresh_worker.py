@@ -214,7 +214,8 @@ def run_refresh(
                         skipped_filtered += 1
                         continue
 
-                    # Skip next-day arrivals (useless for day trips)
+                    # Skip next-day arrivals on outbound (landing next day is useless)
+                    # But allow on return flights (arriving home after midnight is fine)
                     arrival_ahead = getattr(f, "arrival_time_ahead", "") or ""
                     if arrival_ahead and arrival_ahead != "0" and direction == "outbound":
                         skipped_filtered += 1
@@ -230,13 +231,18 @@ def run_refresh(
                         skipped_filtered += 1
                         continue
 
+                    price = _parse_price(f.price)
+                    if price <= 0:
+                        skipped_filtered += 1
+                        continue
+
                     flights.append({
                         "airline": f.name or "",
                         "departure": dep_time,
                         "arrival": arr_time,
                         "depart_minutes": dep_mins,
                         "arrive_minutes": arr_mins,
-                        "price": _parse_price(f.price),
+                        "price": price,
                         "currency": "GBP",
                         "stops": stops,
                         "arrival_ahead": arrival_ahead,
@@ -319,10 +325,14 @@ def run_refresh(
                         if direction == "return" and dep_mins < 720:
                             skipped_filtered += 1
                             continue
+                        price = _parse_price(f.price)
+                        if price <= 0:
+                            skipped_filtered += 1
+                            continue
                         flights.append({
                             "airline": f.name or "", "departure": dep_time, "arrival": arr_time,
                             "depart_minutes": dep_mins, "arrive_minutes": arr_mins,
-                            "price": _parse_price(f.price), "currency": "GBP",
+                            "price": price, "currency": "GBP",
                             "stops": stops, "arrival_ahead": arrival_ahead,
                         })
                 seen_flights = set()
